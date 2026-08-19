@@ -42,7 +42,9 @@ app = FastAPI(
 )
 
 
-def current_identity(session: SessionDep, authorization: AuthorizationHeader) -> auth.Identity:
+def current_identity(
+    session: SessionDep, authorization: AuthorizationHeader = None
+) -> auth.Identity:
     return auth.authenticate(session, authorization)
 
 
@@ -61,7 +63,9 @@ def health() -> dict[str, str]:
 
 @app.post("/firms/register", response_model=FirmCredential, status_code=status.HTTP_201_CREATED)
 def register_firm(
-    payload: FirmRegistration, session: SessionDep, bootstrap_token: BootstrapHeader
+    payload: FirmRegistration,
+    session: SessionDep,
+    bootstrap_token: BootstrapHeader = None,
 ) -> FirmCredential:
     auth.verify_bootstrap_token(bootstrap_token)
     return repository.register_firm(session, payload)
