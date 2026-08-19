@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from enum import StrEnum
 from urllib.parse import quote, urlencode
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
@@ -377,6 +377,157 @@ def select_google_calendar(
     session.commit()
     session.refresh(connection)
     return _view(connection)
+
+
+def _google_channel_token(connection_id: str, channel_id: str) -> str:
+    return hmac.new(
+        _required("EXPEDIENTE_OAUTH_STATE_SECRET").encode(),
+        f"{connection_id}:{channel_id}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def watch_google_calendar(
+    session: Session, firm_id: UUID, user_id: UUID
+) -> dict[str, str]:
+    connection = connection_record(
+        session, firm_id, user_id, IntegrationProvider.GOOGLE
+    )
+    channel_id = str(uuid4())
+    calendar_id = connection.configuration.get("calendar_id", "primary")
+    response = httpx.post(
+        (
+            "https://www.googleapis.com/calendar/v3/calendars/"
+            f"{quote(calendar_id, safe='')}/events/watch"
+        ),
+        json={
+            "id": channel_id,
+            "type": "web_hook",
+            "address": _required("GOOGLE_CALENDAR_WEBHOOK_URL"),
+            "token": _google_channel_token(connection.id, channel_id),
+        },
+        headers={"Authorization": f"Bearer {google_access_token(session, connection)}"},
+        timeout=20,
+    )
+    if response.is_error:
+        raise ProviderError("Google Calendar rechazó la suscripción")
+    provider_result = response.json()
+    connection.configuration = {
+        **(connection.configuration or {}),
+        "channel_id": channel_id,
+        "channel_resource_id": str(provider_result.get("resourceId", "")),
+        "channel_expiration": str(provider_result.get("expiration", "")),
+        "sync_required": "false",
+    }
+    connection.updated_at = datetime.now(UTC)
+    session.commit()
+    return {"status": "watching", "channel_id": channel_id}
+
+
+def receive_google_notification(
+    session: Session,
+    channel_id: str | None,
+    channel_token: str | None,
+    resource_id: str | None,
+) -> bool:
+    if not channel_id or not channel_token:
+        return False
+    connections = session.scalars(
+        select(IntegrationConnectionRecord).where(
+            IntegrationConnectionRecord.provider == IntegrationProvider.GOOGLE.value,
+            IntegrationConnectionRecord.status == "active",
+        )
+    )
+    connection = next(
+        (
+            item
+            for item in connections
+            if item.configuration.get("channel_id") == channel_id
+        ),
+        None,
+    )
+    if connection is None or not hmac.compare_digest(
+        channel_token, _google_channel_token(connection.id, channel_id)
+    ):
+        return False
+    configured_resource = connection.configuration.get("channel_resource_id")
+    if configured_resource and resource_id != configured_resource:
+        return False
+    connection.configuration = {**connection.configuration, "sync_required": "true"}
+    connection.updated_at = datetime.now(UTC)
+    session.commit()
+    return True
+
+
+def sync_linked_google_events(session: Session) -> dict[str, int]:
+    result = {"connections": 0, "events": 0, "failed": 0}
+    connections = list(
+        session.scalars(
+            select(IntegrationConnectionRecord).where(
+                IntegrationConnectionRecord.provider
+                == IntegrationProvider.GOOGLE.value,
+                IntegrationConnectionRecord.status == "active",
+            )
+        )
+    )
+    for connection in connections:
+        if connection.configuration.get("sync_required") != "true":
+            continue
+        result["connections"] += 1
+        calendar_id = connection.configuration.get("calendar_id", "primary")
+        links = list(
+            session.scalars(
+                select(ExternalEventLinkRecord).where(
+                    ExternalEventLinkRecord.connection_id == connection.id
+                )
+            )
+        )
+        try:
+            token = google_access_token(session, connection)
+            for link in links:
+                response = httpx.get(
+                    (
+                        "https://www.googleapis.com/calendar/v3/calendars/"
+                        f"{quote(calendar_id, safe='')}/events/"
+                        f"{quote(link.external_id, safe='')}"
+                    ),
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=20,
+                )
+                event = session.get(CalendarEventRecord, link.calendar_event_id)
+                if event is None:
+                    continue
+                external = response.json() if not response.is_error else {}
+                if response.status_code in {404, 410} or external.get("status") == "cancelled":
+                    event.status = "cancelled"
+                elif response.is_error:
+                    raise ProviderError("Google rechazó la lectura de un evento")
+                else:
+                    start = external.get("start", {}).get("dateTime")
+                    end = external.get("end", {}).get("dateTime")
+                    if start and end:
+                        event.starts_at = datetime.fromisoformat(
+                            start.replace("Z", "+00:00")
+                        ).astimezone(UTC)
+                        event.ends_at = datetime.fromisoformat(
+                            end.replace("Z", "+00:00")
+                        ).astimezone(UTC)
+                    event.title = external.get("summary", event.title)[:240]
+                    event.description = external.get("description")
+                    event.location = external.get("location")
+                    link.etag = external.get("etag")
+                    link.updated_at = datetime.now(UTC)
+                    result["events"] += 1
+            connection.configuration = {
+                **connection.configuration,
+                "sync_required": "false",
+            }
+            connection.updated_at = datetime.now(UTC)
+            session.commit()
+        except (IntegrationConfigurationError, ProviderError, ValueError, KeyError):
+            session.rollback()
+            result["failed"] += 1
+    return result
 
 
 def push_google_event(
