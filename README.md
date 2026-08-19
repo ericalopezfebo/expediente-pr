@@ -16,8 +16,11 @@ a aprobación humana.
 ## Primera versión
 
 - Crear y consultar expedientes.
+- Persistencia local en SQLite o despliegue con PostgreSQL.
+- Aislamiento obligatorio por bufete mediante `X-Firm-ID`.
 - Vincular números de casos relacionados.
 - Crear y consultar tareas por expediente.
+- Bitácora de creación de expedientes y tareas.
 - Calcular fechas provisionales con explicación y fuente indicada por el usuario.
 - API documentada automáticamente con OpenAPI.
 - Pruebas y validación continua en GitHub Actions.
@@ -34,6 +37,11 @@ uvicorn expediente_pr.main:app --reload
 ```
 
 Abre `http://127.0.0.1:8000/docs` para probar la API.
+
+Primero crea un bufete ficticio con `POST /firms`. Para las rutas de expedientes,
+envía su identificador en `X-Firm-ID` y un actor de desarrollo en `X-Actor`.
+Estos encabezados establecen aislamiento y trazabilidad, pero **todavía no sustituyen
+un sistema de autenticación**.
 
 También puede iniciarse con Docker:
 
@@ -58,4 +66,3 @@ pytest -q
 ## Licencia
 
 Apache License 2.0. Consulta [LICENSE](LICENSE).
-
