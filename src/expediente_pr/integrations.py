@@ -52,6 +52,17 @@ class AuthorizationURL(BaseModel):
     url: str
 
 
+class CalendarChoice(BaseModel):
+    id: str
+    summary: str
+    primary: bool = False
+    access_role: str
+
+
+class CalendarSelection(BaseModel):
+    calendar_id: str = Field(min_length=1, max_length=1024)
+
+
 class GmailMessage(BaseModel):
     case_id: UUID | None = None
     to: str = Field(min_length=3, max_length=320)
@@ -322,6 +333,50 @@ def google_access_token(
     connection.updated_at = datetime.now(UTC)
     session.commit()
     return token["access_token"]
+
+
+def google_calendars(
+    session: Session, firm_id: UUID, user_id: UUID
+) -> list[CalendarChoice]:
+    connection = connection_record(
+        session, firm_id, user_id, IntegrationProvider.GOOGLE
+    )
+    response = httpx.get(
+        "https://www.googleapis.com/calendar/v3/users/me/calendarList",
+        headers={"Authorization": f"Bearer {google_access_token(session, connection)}"},
+        timeout=20,
+    )
+    if response.is_error:
+        raise ProviderError("Google Calendar rechazó la consulta de calendarios")
+    return [
+        CalendarChoice(
+            id=item["id"],
+            summary=item.get("summary", item["id"]),
+            primary=item.get("primary", False),
+            access_role=item.get("accessRole", "reader"),
+        )
+        for item in response.json().get("items", [])
+        if item.get("accessRole") in {"owner", "writer"}
+    ]
+
+
+def select_google_calendar(
+    session: Session,
+    firm_id: UUID,
+    user_id: UUID,
+    calendar_id: str,
+) -> ConnectionView:
+    connection = connection_record(
+        session, firm_id, user_id, IntegrationProvider.GOOGLE
+    )
+    connection.configuration = {
+        **(connection.configuration or {}),
+        "calendar_id": calendar_id,
+    }
+    connection.updated_at = datetime.now(UTC)
+    session.commit()
+    session.refresh(connection)
+    return _view(connection)
 
 
 def push_google_event(
