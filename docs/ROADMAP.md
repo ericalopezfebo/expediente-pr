@@ -12,8 +12,9 @@
 - [x] SQLite para desarrollo y PostgreSQL mediante Docker.
 - [x] Contexto obligatorio de bufete.
 - [x] Registro inicial de auditoría.
-- [ ] Migraciones versionadas.
-- [ ] Usuarios, autenticación multifactor y roles.
+- [x] Migraciones versionadas.
+- [x] Usuarios, tokens hash y roles básicos.
+- [ ] Autenticación multifactor, recuperación y rotación de credenciales.
 - [ ] Bitácora append-only protegida a nivel de base de datos.
 - Búsqueda y filtros.
 
