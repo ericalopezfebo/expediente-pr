@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select
@@ -8,6 +8,11 @@ from sqlalchemy.orm import Session
 from .auth import issue_token
 from .models import (
     AuditEvent,
+    CalendarConflict,
+    CalendarEvent,
+    CalendarEventCreate,
+    CalendarEventStatus,
+    CalendarReminder,
     Case,
     CaseCreate,
     CaseStatus,
@@ -26,6 +31,7 @@ from .models import (
 )
 from .records import (
     AuditRecord,
+    CalendarEventRecord,
     CaseRecord,
     DocumentRecord,
     FirmRecord,
@@ -373,3 +379,198 @@ def related_case_suggestions(
                 )
             )
     return sorted(suggestions, key=lambda item: item.score, reverse=True)
+
+
+def _calendar_event(record: CalendarEventRecord) -> CalendarEvent:
+    starts_at = (
+        record.starts_at.replace(tzinfo=UTC)
+        if record.starts_at.tzinfo is None
+        else record.starts_at
+    )
+    ends_at = (
+        record.ends_at.replace(tzinfo=UTC)
+        if record.ends_at.tzinfo is None
+        else record.ends_at
+    )
+    return CalendarEvent(
+        id=UUID(record.id),
+        firm_id=UUID(record.firm_id),
+        case_id=UUID(record.case_id) if record.case_id else None,
+        title=record.title,
+        description=record.description,
+        event_type=record.event_type,
+        starts_at=starts_at,
+        ends_at=ends_at,
+        location=record.location,
+        assigned_user_id=UUID(record.assigned_user_id) if record.assigned_user_id else None,
+        reminder_minutes=record.reminder_minutes,
+        legal_authority=record.legal_authority,
+        calculation_summary=record.calculation_summary,
+        status=record.status,
+        created_by=UUID(record.created_by),
+        confirmed_by=UUID(record.confirmed_by) if record.confirmed_by else None,
+        confirmed_at=record.confirmed_at,
+        created_at=record.created_at,
+    )
+
+
+def create_calendar_event(
+    session: Session, firm_id: UUID, creator_id: UUID, actor: str, payload: CalendarEventCreate
+) -> CalendarEvent:
+    if payload.case_id and get_case(session, firm_id, payload.case_id) is None:
+        raise ValueError("Expediente no encontrado")
+    if payload.assigned_user_id:
+        assigned = session.scalar(
+            select(UserRecord).where(
+                UserRecord.id == str(payload.assigned_user_id),
+                UserRecord.firm_id == str(firm_id),
+                UserRecord.active.is_(True),
+            )
+        )
+        if assigned is None:
+            raise ValueError("Persona asignada no pertenece al bufete")
+    values = payload.model_dump(mode="json", exclude={"starts_at", "ends_at"})
+    record = CalendarEventRecord(
+        firm_id=str(firm_id),
+        created_by=str(creator_id),
+        status=CalendarEventStatus.TENTATIVE.value,
+        created_at=datetime.now(UTC),
+        starts_at=payload.starts_at.astimezone(UTC),
+        ends_at=payload.ends_at.astimezone(UTC),
+        **values,
+    )
+    session.add(record)
+    session.flush()
+    audit(
+        session,
+        firm_id=firm_id,
+        actor=actor,
+        action="calendar_event.created",
+        resource_type="calendar_event",
+        resource_id=UUID(record.id),
+        details={"case_id": record.case_id or "", "event_type": record.event_type},
+    )
+    session.commit()
+    return _calendar_event(record)
+
+
+def list_calendar_events(
+    session: Session,
+    firm_id: UUID,
+    starts_after: datetime,
+    starts_before: datetime,
+    case_id: UUID | None = None,
+    assigned_user_id: UUID | None = None,
+) -> list[CalendarEvent]:
+    statement = (
+        select(CalendarEventRecord)
+        .where(
+            CalendarEventRecord.firm_id == str(firm_id),
+            CalendarEventRecord.starts_at < starts_before,
+            CalendarEventRecord.ends_at > starts_after,
+            CalendarEventRecord.status != CalendarEventStatus.CANCELLED.value,
+        )
+        .order_by(CalendarEventRecord.starts_at)
+    )
+    if case_id:
+        statement = statement.where(CalendarEventRecord.case_id == str(case_id))
+    if assigned_user_id:
+        statement = statement.where(
+            CalendarEventRecord.assigned_user_id == str(assigned_user_id)
+        )
+    return [_calendar_event(record) for record in session.scalars(statement)]
+
+
+def confirm_calendar_event(
+    session: Session, firm_id: UUID, event_id: UUID, confirmer_id: UUID, actor: str
+) -> CalendarEvent | None:
+    record = session.scalar(
+        select(CalendarEventRecord).where(
+            CalendarEventRecord.id == str(event_id),
+            CalendarEventRecord.firm_id == str(firm_id),
+        )
+    )
+    if record is None:
+        return None
+    record.status = CalendarEventStatus.CONFIRMED.value
+    record.confirmed_by = str(confirmer_id)
+    record.confirmed_at = datetime.now(UTC)
+    audit(
+        session,
+        firm_id=firm_id,
+        actor=actor,
+        action="calendar_event.confirmed",
+        resource_type="calendar_event",
+        resource_id=event_id,
+        details={"case_id": record.case_id or ""},
+    )
+    session.commit()
+    return _calendar_event(record)
+
+
+def calendar_conflicts(
+    session: Session, firm_id: UUID, starts_after: datetime, starts_before: datetime
+) -> list[CalendarConflict]:
+    records = list(
+        session.scalars(
+            select(CalendarEventRecord).where(
+                CalendarEventRecord.firm_id == str(firm_id),
+                CalendarEventRecord.assigned_user_id.is_not(None),
+                CalendarEventRecord.starts_at < starts_before,
+                CalendarEventRecord.ends_at > starts_after,
+                CalendarEventRecord.status != CalendarEventStatus.CANCELLED.value,
+            )
+        )
+    )
+    conflicts: list[CalendarConflict] = []
+    for index, event in enumerate(records):
+        for other in records[index + 1 :]:
+            if event.assigned_user_id != other.assigned_user_id:
+                continue
+            if event.starts_at < other.ends_at and other.starts_at < event.ends_at:
+                conflicts.append(
+                    CalendarConflict(
+                        event_id=UUID(event.id),
+                        conflicting_event_id=UUID(other.id),
+                        assigned_user_id=UUID(event.assigned_user_id),
+                        starts_at=max(event.starts_at, other.starts_at),
+                        ends_at=min(event.ends_at, other.ends_at),
+                    )
+                )
+    return conflicts
+
+
+def due_calendar_reminders(
+    session: Session, firm_id: UUID, at: datetime, window_minutes: int
+) -> list[CalendarReminder]:
+    window_end = at + timedelta(minutes=window_minutes)
+    records = session.scalars(
+        select(CalendarEventRecord).where(
+            CalendarEventRecord.firm_id == str(firm_id),
+            CalendarEventRecord.starts_at > at,
+            CalendarEventRecord.starts_at <= at + timedelta(days=366),
+            CalendarEventRecord.status != CalendarEventStatus.CANCELLED.value,
+        )
+    )
+    reminders: list[CalendarReminder] = []
+    for record in records:
+        starts_at = (
+            record.starts_at.replace(tzinfo=UTC)
+            if record.starts_at.tzinfo is None
+            else record.starts_at
+        )
+        for minutes in record.reminder_minutes:
+            due_at = starts_at - timedelta(minutes=minutes)
+            if at <= due_at < window_end:
+                reminders.append(
+                    CalendarReminder(
+                        event_id=UUID(record.id),
+                        reminder_minutes=minutes,
+                        due_at=due_at,
+                        title=record.title,
+                        assigned_user_id=(
+                            UUID(record.assigned_user_id) if record.assigned_user_id else None
+                        ),
+                    )
+                )
+    return sorted(reminders, key=lambda item: item.due_at)
