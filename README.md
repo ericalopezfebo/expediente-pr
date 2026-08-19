@@ -25,6 +25,7 @@ a aprobación humana.
 - Documentos PDF y DOCX en cuarentena con hash SHA-256.
 - Exportación local opcional a una raíz previamente autorizada en VELUM.
 - Dashboard inicial y sugerencias explicables de casos relacionados.
+- Calendario jurídico por bufete y expediente, conflictos, alertas y exportación `.ics` privada.
 - Calcular fechas provisionales con explicación y fuente indicada por el usuario.
 - API documentada automáticamente con OpenAPI.
 - Pruebas y validación continua en GitHub Actions.
@@ -54,6 +55,11 @@ Los documentos cargados permanecen en estado `quarantined`: no pueden descargars
 desde la API ni enviarse a proveedores externos. La exportación a VELUM solo copia el
 archivo a `EXPEDIENTE_VELUM_ROOT`, que debe ser una carpeta local existente y también
 estar autorizada expresamente en VELUM.
+
+Los eventos jurídicos calculados se crean como `tentative` y solo una persona con rol
+de abogado o administrador puede confirmarlos. La exportación `.ics` oculta títulos,
+descripciones y ubicaciones por defecto. Las alertas quedan disponibles en
+`/calendar/reminders/due` para que un worker autorizado las distribuya.
 
 También puede iniciarse con Docker:
 
