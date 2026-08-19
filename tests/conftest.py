@@ -9,6 +9,7 @@ from expediente_pr.database import Base, engine  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def reset_database() -> None:
+def reset_database(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("EXPEDIENTE_DOCUMENT_ROOT", str(tmp_path / "quarantine"))
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
