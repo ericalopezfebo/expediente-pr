@@ -34,6 +34,8 @@ from .document_storage import (
 from .ical import build_calendar
 from .integrations import (
     AuthorizationURL,
+    CalendarChoice,
+    CalendarSelection,
     ConnectionView,
     DeliveryResult,
     GmailMessage,
@@ -47,11 +49,13 @@ from .integrations import (
     exchange_google_code,
     exchange_meta_code,
     google_authorization_url,
+    google_calendars,
     list_connections,
     push_google_event,
     record_whatsapp_webhook,
     send_gmail,
     send_whatsapp_template,
+    select_google_calendar,
     upsert_connection,
     verify_meta_signature,
     verify_oauth_state,
@@ -93,7 +97,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="Expediente PR",
-    version="0.5.0",
+    version="0.6.0",
     description="API para la gestión auditable y aislada de expedientes jurídicos.",
     lifespan=lifespan,
 )
@@ -458,6 +462,31 @@ def authorize_google(identity: IdentityDep) -> AuthorizationURL:
         )
     except IntegrationConfigurationError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/integrations/google/calendars", response_model=list[CalendarChoice])
+def available_google_calendars(
+    session: SessionDep, identity: IdentityDep
+) -> list[CalendarChoice]:
+    try:
+        return google_calendars(session, identity.firm_id, identity.user_id)
+    except (IntegrationConfigurationError, ProviderError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.put("/integrations/google/calendar", response_model=ConnectionView)
+def choose_google_calendar(
+    payload: CalendarSelection, session: SessionDep, identity: IdentityDep
+) -> ConnectionView:
+    try:
+        choices = google_calendars(session, identity.firm_id, identity.user_id)
+        if payload.calendar_id not in {choice.id for choice in choices}:
+            raise ValueError("Calendario no disponible para escritura")
+        return select_google_calendar(
+            session, identity.firm_id, identity.user_id, payload.calendar_id
+        )
+    except (IntegrationConfigurationError, ProviderError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/integrations/google/callback", response_model=ConnectionView)
