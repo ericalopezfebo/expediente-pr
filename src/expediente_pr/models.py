@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
@@ -30,7 +30,7 @@ class CaseCreate(BaseModel):
 class Case(CaseCreate):
     id: UUID = Field(default_factory=uuid4)
     status: CaseStatus = CaseStatus.OPEN
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class TaskCreate(BaseModel):
@@ -60,4 +60,3 @@ class DeadlineResult(BaseModel):
     explanation: list[str]
     authority: str
     requires_attorney_review: bool = True
-
