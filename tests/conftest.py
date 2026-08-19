@@ -1,6 +1,7 @@
 import os
 
 os.environ["EXPEDIENTE_DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
+os.environ["EXPEDIENTE_BOOTSTRAP_TOKEN"] = "test-bootstrap-secret"
 
 import pytest  # noqa: E402
 
