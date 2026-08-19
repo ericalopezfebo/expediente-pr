@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 from datetime import UTC, date, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class CaseStatus(StrEnum):
@@ -130,6 +132,79 @@ class RelatedCaseSuggestion(BaseModel):
     reasons: list[str]
 
 
+class CalendarEventType(StrEnum):
+    HEARING = "hearing"
+    DEADLINE = "deadline"
+    MEETING = "meeting"
+    DEPOSITION = "deposition"
+    TASK = "task"
+    OTHER = "other"
+
+
+class CalendarEventStatus(StrEnum):
+    TENTATIVE = "tentative"
+    CONFIRMED = "confirmed"
+    CANCELLED = "cancelled"
+
+
+class CalendarEventCreate(BaseModel):
+    case_id: UUID | None = None
+    title: str = Field(min_length=1, max_length=240)
+    description: str | None = Field(default=None, max_length=2000)
+    event_type: CalendarEventType
+    starts_at: datetime
+    ends_at: datetime
+    location: str | None = Field(default=None, max_length=500)
+    assigned_user_id: UUID | None = None
+    reminder_minutes: list[int] = Field(default_factory=lambda: [10080, 4320, 1440])
+    legal_authority: str | None = Field(default=None, max_length=1000)
+    calculation_summary: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_schedule(self):
+        if self.starts_at.tzinfo is None or self.ends_at.tzinfo is None:
+            raise ValueError("Las fechas deben incluir zona horaria")
+        if self.ends_at <= self.starts_at:
+            raise ValueError("La fecha final debe ser posterior a la inicial")
+        if any(value < 0 or value > 525600 for value in self.reminder_minutes):
+            raise ValueError("Los recordatorios deben estar entre 0 y 525600 minutos")
+        self.reminder_minutes = sorted(set(self.reminder_minutes), reverse=True)
+        return self
+
+
+class CalendarEvent(CalendarEventCreate):
+    id: UUID
+    firm_id: UUID
+    status: CalendarEventStatus
+    created_by: UUID
+    confirmed_by: UUID | None = None
+    confirmed_at: datetime | None = None
+    created_at: datetime
+
+
+class CalendarConflict(BaseModel):
+    event_id: UUID
+    conflicting_event_id: UUID
+    assigned_user_id: UUID
+    starts_at: datetime
+    ends_at: datetime
+
+
+class CalendarReminder(BaseModel):
+    event_id: UUID
+    reminder_minutes: int
+    due_at: datetime
+    title: str
+    assigned_user_id: UUID | None = None
+
+
+class DeadlineEventCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=240)
+    deadline: DeadlineRequest
+    assigned_user_id: UUID | None = None
+    reminder_minutes: list[int] = Field(default_factory=lambda: [43200, 21600, 10080, 4320, 1440])
+
+
 class DeadlineRequest(BaseModel):
     start_date: date
     days: int = Field(gt=0, le=365)
@@ -158,3 +233,6 @@ class DeadlineResult(BaseModel):
     explanation: list[str]
     warnings: list[str] = Field(default_factory=list)
     requires_attorney_review: bool = True
+
+
+DeadlineEventCreate.model_rebuild()
