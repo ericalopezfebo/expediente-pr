@@ -2,8 +2,8 @@ from logging.config import fileConfig
 
 from alembic import context
 
-from expediente_pr.database import Base, DATABASE_URL
 from expediente_pr import records  # noqa: F401
+from expediente_pr.database import DATABASE_URL, Base
 
 config = context.config
 config.set_main_option("sqlalchemy.url", DATABASE_URL)
