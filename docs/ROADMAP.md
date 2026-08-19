@@ -50,6 +50,9 @@
 - [x] Envío de Gmail sin lectura general del buzón
 - [x] WhatsApp Business templates y webhooks firmados
 - [ ] Renovación automática de tokens y canales de Google
-- [ ] Cola idempotente con reintentos y dead-letter queue
-- [ ] Pantalla frontend para Embedded Signup
+- [x] Cola persistente y deduplicada con reintentos limitados
+- [x] Panel frontend para iniciar y revocar conexiones
+- [x] Selector validado de Google Calendar
+- [ ] Dead-letter queue y alertas operacionales
+- [ ] Finalizar Embedded Signup dentro del frontend con el SDK oficial de Meta
 - [ ] Asociación humana de comunicaciones entrantes
