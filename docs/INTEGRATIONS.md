@@ -48,6 +48,12 @@ El dashboard permite escoger cualquiera de los calendarios donde la cuenta tenga
 permiso de escritura. La selección se valida nuevamente contra Google antes de
 guardarse.
 
+Configure `GOOGLE_CALENDAR_WEBHOOK_URL` con una dirección HTTPS pública y pulse
+“Activar sincronización”. Google notificará cambios sin incluir el contenido del
+evento. El worker vuelve a consultar exclusivamente los eventos que Expediente PR
+ya había enlazado, evitando importar el calendario personal completo. Las
+suscripciones de Google expiran y deben renovarse operacionalmente.
+
 ## Worker de recordatorios
 
 Ejecute periódicamente:
@@ -62,6 +68,7 @@ El worker:
 - envía un aviso sin título, cliente, foro ni número de caso;
 - conserva intentos y errores para operación;
 - cancela trabajos correspondientes a eventos cancelados.
+- procesa cambios pendientes de los eventos Google ya vinculados.
 
 La deduplicación evita reencolar el mismo recordatorio. No equivale a garantía
 matemática de entrega única cuando un proveedor acepta una solicitud pero la
