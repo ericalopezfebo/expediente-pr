@@ -1,26 +1,39 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile, status
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from . import auth, repository
+from .dashboard import DASHBOARD_HTML
 from .database import create_schema, get_session
-from .deadlines import calculate_deadline
+from .deadlines import UnknownDeadlineRuleError, calculate_deadline, list_rules
+from .document_storage import (
+    MAX_DOCUMENT_BYTES,
+    UnsafeDocumentError,
+    export_to_velum,
+    save_quarantined,
+)
 from .models import (
     AuditEvent,
     Case,
     CaseCreate,
     DeadlineRequest,
     DeadlineResult,
+    DeadlineRule,
+    Document,
     FirmCredential,
     FirmRegistration,
+    RelatedCaseSuggestion,
     Task,
     TaskCreate,
     UserCreate,
     UserCredential,
     UserRole,
+    VelumExport,
 )
 
 SessionDep = Annotated[Session, Depends(get_session)]
@@ -59,6 +72,18 @@ def authorize(identity: auth.Identity, *roles: UserRole) -> None:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def dashboard() -> HTMLResponse:
+    return HTMLResponse(
+        DASHBOARD_HTML,
+        headers={
+            "Content-Security-Policy": (
+                "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
+            )
+        },
+    )
 
 
 @app.post("/firms/register", response_model=FirmCredential, status_code=status.HTTP_201_CREATED)
@@ -133,6 +158,92 @@ def list_tasks(case_id: UUID, session: SessionDep, identity: IdentityDep) -> lis
     return repository.list_tasks(session, identity.firm_id, case_id)
 
 
+@app.get("/cases/{case_id}/timeline", response_model=list[AuditEvent])
+def case_timeline(case_id: UUID, session: SessionDep, identity: IdentityDep) -> list[AuditEvent]:
+    authorize(identity, UserRole.ADMIN, UserRole.ATTORNEY, UserRole.STAFF)
+    if repository.get_case(session, identity.firm_id, case_id) is None:
+        raise HTTPException(status_code=404, detail="Expediente no encontrado")
+    return repository.case_timeline(session, identity.firm_id, case_id)
+
+
+@app.get("/cases/{case_id}/related-suggestions", response_model=list[RelatedCaseSuggestion])
+def related_suggestions(
+    case_id: UUID, session: SessionDep, identity: IdentityDep
+) -> list[RelatedCaseSuggestion]:
+    authorize(identity, UserRole.ADMIN, UserRole.ATTORNEY, UserRole.STAFF)
+    if repository.get_case(session, identity.firm_id, case_id) is None:
+        raise HTTPException(status_code=404, detail="Expediente no encontrado")
+    return repository.related_case_suggestions(session, identity.firm_id, case_id)
+
+
+@app.post(
+    "/cases/{case_id}/documents", response_model=Document, status_code=status.HTTP_201_CREATED
+)
+async def upload_document(
+    case_id: UUID,
+    session: SessionDep,
+    identity: IdentityDep,
+    file: Annotated[UploadFile, File()],
+) -> Document:
+    authorize(identity, UserRole.ADMIN, UserRole.ATTORNEY, UserRole.STAFF)
+    if repository.get_case(session, identity.firm_id, case_id) is None:
+        raise HTTPException(status_code=404, detail="Expediente no encontrado")
+    content = await file.read(MAX_DOCUMENT_BYTES + 1)
+    media_type = file.content_type or "application/octet-stream"
+    try:
+        storage_key, digest = save_quarantined(content, media_type)
+    except UnsafeDocumentError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    filename = Path(file.filename or "documento").name[:240]
+    return repository.record_document(
+        session,
+        firm_id=identity.firm_id,
+        case_id=case_id,
+        actor=identity.email,
+        filename=filename,
+        media_type=media_type,
+        size=len(content),
+        sha256=digest,
+        storage_key=storage_key,
+    )
+
+
+@app.get("/cases/{case_id}/documents", response_model=list[Document])
+def documents(case_id: UUID, session: SessionDep, identity: IdentityDep) -> list[Document]:
+    authorize(identity, UserRole.ADMIN, UserRole.ATTORNEY, UserRole.STAFF)
+    if repository.get_case(session, identity.firm_id, case_id) is None:
+        raise HTTPException(status_code=404, detail="Expediente no encontrado")
+    return repository.list_documents(session, identity.firm_id, case_id)
+
+
+@app.post("/documents/{document_id}/export-to-velum", response_model=VelumExport)
+def velum_export(document_id: UUID, session: SessionDep, identity: IdentityDep) -> VelumExport:
+    authorize(identity, UserRole.ADMIN, UserRole.ATTORNEY)
+    record = repository.get_document_record(session, identity.firm_id, document_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+    try:
+        target = export_to_velum(record.storage_key)
+    except (UnsafeDocumentError, OSError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    repository.audit(
+        session,
+        firm_id=identity.firm_id,
+        actor=identity.email,
+        action="document.exported_to_velum",
+        resource_type="document",
+        resource_id=document_id,
+        details={"sha256": record.sha256},
+    )
+    session.commit()
+    return VelumExport(
+        document_id=document_id,
+        sha256=record.sha256,
+        local_path=str(target),
+        warning="La exportación local no confirma que VELUM haya procesado el documento.",
+    )
+
+
 @app.get("/audit-events", response_model=list[AuditEvent])
 def audit_events(session: SessionDep, identity: IdentityDep) -> list[AuditEvent]:
     authorize(identity, UserRole.ADMIN)
@@ -141,4 +252,12 @@ def audit_events(session: SessionDep, identity: IdentityDep) -> list[AuditEvent]
 
 @app.post("/deadlines/calculate", response_model=DeadlineResult)
 def deadline(payload: DeadlineRequest) -> DeadlineResult:
-    return calculate_deadline(payload)
+    try:
+        return calculate_deadline(payload)
+    except UnknownDeadlineRuleError as exc:
+        raise HTTPException(status_code=422, detail="Regla de términos desconocida") from exc
+
+
+@app.get("/deadline-rules", response_model=list[DeadlineRule])
+def deadline_rules() -> list[DeadlineRule]:
+    return list_rules()
