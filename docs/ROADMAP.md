@@ -42,3 +42,14 @@
 - [x] Confirmación profesional de términos, recordatorios y conflictos de horario.
 - Calendario, alertas y asignaciones.
 - [x] Detección explicable de expedientes relacionados.
+# Integraciones
+
+- [x] Conexiones cifradas y aisladas por bufete/usuario
+- [x] Google OAuth con permisos mínimos
+- [x] Sincronización saliente de Google Calendar
+- [x] Envío de Gmail sin lectura general del buzón
+- [x] WhatsApp Business templates y webhooks firmados
+- [ ] Renovación automática de tokens y canales de Google
+- [ ] Cola idempotente con reintentos y dead-letter queue
+- [ ] Pantalla frontend para Embedded Signup
+- [ ] Asociación humana de comunicaciones entrantes
