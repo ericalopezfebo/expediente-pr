@@ -10,11 +10,14 @@ DASHBOARD_HTML = """<!doctype html>
     header { background: #123b2d; color: white; padding: 1.2rem 5vw; }
     main { max-width: 1100px; margin: auto; padding: 2rem 5vw; }
     .auth, article { background: white; border: 1px solid #d7d2c5; border-radius: 12px; padding: 1rem; }
-    input, button { font: inherit; padding: .7rem; }
+    input, button, select { font: inherit; padding: .7rem; }
     input { width: min(34rem, 70%); }
     button { background: #b8562f; color: white; border: 0; border-radius: 8px; cursor: pointer; }
     #cases, #calendar { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin-top: 1rem; }
     .warning { color: #873813; font-weight: 650; }
+    .actions { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
+    .muted { color: #5d655f; }
+    .connected { color: #14613f; font-weight: 700; }
   </style>
 </head>
 <body>
@@ -29,15 +32,110 @@ DASHBOARD_HTML = """<!doctype html>
   </section>
   <h2>Próximos eventos</h2>
   <section id="calendar" aria-live="polite"></section>
+  <h2>Integraciones</h2>
+  <section id="integrations" aria-live="polite">
+    <article>
+      <h3>Google Workspace</h3>
+      <p id="google-state" class="muted">Cargue el panel para comprobar la conexión.</p>
+      <div class="actions">
+        <button id="connect-google" type="button">Conectar Google</button>
+        <select id="google-calendar" hidden aria-label="Calendario de Google"></select>
+        <button id="save-calendar" type="button" hidden>Usar este calendario</button>
+        <button id="disconnect-google" type="button" hidden>Desconectar</button>
+      </div>
+    </article>
+    <article>
+      <h3>WhatsApp Business</h3>
+      <p id="whatsapp-state" class="muted">Requiere una cuenta de WhatsApp Business Platform.</p>
+      <div class="actions">
+        <button id="connect-whatsapp" type="button">Comenzar conexión</button>
+        <button id="disconnect-whatsapp" type="button" hidden>Desconectar</button>
+      </div>
+    </article>
+  </section>
   <h2>Expedientes</h2>
   <section id="cases" aria-live="polite"></section>
 </main>
 <script>
 const statusNode = document.querySelector('#status');
+let activeHeaders = null;
+async function disconnectProvider(provider) {
+  const response = await fetch(`/integrations/${provider}`, {
+    method: 'DELETE', headers: activeHeaders
+  });
+  if (!response.ok) { statusNode.textContent = 'No fue posible desconectar la cuenta.'; return; }
+  await loadIntegrations();
+}
+async function startAuthorization(provider) {
+  if (!activeHeaders) { statusNode.textContent = 'Primero cargue el panel con su token.'; return; }
+  const endpoint = provider === 'google'
+    ? '/integrations/google/authorize' : '/integrations/whatsapp/signup';
+  const response = await fetch(endpoint, {headers: activeHeaders});
+  if (!response.ok) { statusNode.textContent = 'La integración no está configurada en el servidor.'; return; }
+  const result = await response.json();
+  window.location.assign(result.url);
+}
+async function loadIntegrations() {
+  const response = await fetch('/integrations', {headers: activeHeaders});
+  if (!response.ok) return;
+  const connections = await response.json();
+  const google = connections.find(item => item.provider === 'google');
+  const whatsapp = connections.find(item => item.provider === 'whatsapp');
+  const googleState = document.querySelector('#google-state');
+  const whatsappState = document.querySelector('#whatsapp-state');
+  document.querySelector('#disconnect-google').hidden = !google;
+  document.querySelector('#disconnect-whatsapp').hidden = !whatsapp;
+  googleState.textContent = google
+    ? `Conectado · calendario: ${google.configuration.calendar_id || 'primary'}`
+    : 'No conectado.';
+  googleState.className = google ? 'connected' : 'muted';
+  whatsappState.textContent = whatsapp
+    ? 'WhatsApp Business conectado.' : 'No conectado.';
+  whatsappState.className = whatsapp ? 'connected' : 'muted';
+  const selector = document.querySelector('#google-calendar');
+  const save = document.querySelector('#save-calendar');
+  selector.hidden = !google; save.hidden = !google;
+  if (google) {
+    const calendars = await fetch('/integrations/google/calendars', {headers: activeHeaders});
+    if (calendars.ok) {
+      const choices = await calendars.json();
+      selector.replaceChildren(...choices.map(item => {
+        const option = document.createElement('option');
+        option.value = item.id; option.textContent = item.summary;
+        option.selected = item.id === google.configuration.calendar_id;
+        return option;
+      }));
+    }
+  }
+}
+document.querySelector('#connect-google').addEventListener(
+  'click', () => startAuthorization('google')
+);
+document.querySelector('#connect-whatsapp').addEventListener(
+  'click', () => startAuthorization('whatsapp')
+);
+document.querySelector('#disconnect-google').addEventListener(
+  'click', () => disconnectProvider('google')
+);
+document.querySelector('#disconnect-whatsapp').addEventListener(
+  'click', () => disconnectProvider('whatsapp')
+);
+document.querySelector('#save-calendar').addEventListener('click', async () => {
+  const calendarId = document.querySelector('#google-calendar').value;
+  const response = await fetch('/integrations/google/calendar', {
+    method: 'PUT',
+    headers: {...activeHeaders, 'Content-Type': 'application/json'},
+    body: JSON.stringify({calendar_id: calendarId})
+  });
+  statusNode.textContent = response.ok
+    ? 'Calendario seleccionado.' : 'No fue posible seleccionar el calendario.';
+  if (response.ok) await loadIntegrations();
+});
 document.querySelector('#load').addEventListener('click', async () => {
   const token = document.querySelector('#token').value;
   statusNode.textContent = 'Cargando…';
   const headers = {Authorization: `Bearer ${token}`};
+  activeHeaders = headers;
   const start = new Date(); const end = new Date(start.getTime() + 90 * 86400000);
   const [caseResponse, eventResponse] = await Promise.all([
     fetch('/cases', {headers}),
@@ -60,6 +158,7 @@ document.querySelector('#load').addEventListener('click', async () => {
     card.append(title, when, state); return card;
   }));
   statusNode.textContent = `${cases.length} expediente(s) y ${events.length} evento(s). El token no se guardó.`;
+  await loadIntegrations();
 });
 </script>
 </body>

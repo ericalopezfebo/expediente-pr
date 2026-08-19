@@ -44,6 +44,29 @@ Para enviar un correo:
 
 `POST /integrations/google/gmail/send`
 
+El dashboard permite escoger cualquiera de los calendarios donde la cuenta tenga
+permiso de escritura. La selección se valida nuevamente contra Google antes de
+guardarse.
+
+## Worker de recordatorios
+
+Ejecute periódicamente:
+
+`expediente-worker --once`
+
+El worker:
+
+- identifica recordatorios próximos;
+- crea un trabajo único por evento, antelación y canal;
+- utiliza la conexión Google de la persona asignada;
+- envía un aviso sin título, cliente, foro ni número de caso;
+- conserva intentos y errores para operación;
+- cancela trabajos correspondientes a eventos cancelados.
+
+La deduplicación evita reencolar el mismo recordatorio. No equivale a garantía
+matemática de entrega única cuando un proveedor acepta una solicitud pero la
+respuesta se pierde; esa situación debe tratarse como entrega incierta.
+
 ## WhatsApp Business Platform
 
 1. Cree una aplicación empresarial en Meta.
