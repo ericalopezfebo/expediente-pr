@@ -38,5 +38,7 @@
 ## Fase 5 — Interfaz y colaboración
 
 - [x] Dashboard inicial y cronología del caso.
+- [x] Calendario por bufete y expediente con exportación privada `.ics`.
+- [x] Confirmación profesional de términos, recordatorios y conflictos de horario.
 - Calendario, alertas y asignaciones.
 - [x] Detección explicable de expedientes relacionados.

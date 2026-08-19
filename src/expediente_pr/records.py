@@ -78,6 +78,31 @@ class DocumentRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class CalendarEventRecord(Base):
+    __tablename__ = "calendar_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    firm_id: Mapped[str] = mapped_column(ForeignKey("firms.id"), index=True)
+    case_id: Mapped[str | None] = mapped_column(ForeignKey("cases.id"), index=True, nullable=True)
+    title: Mapped[str] = mapped_column(String(240))
+    description: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    event_type: Mapped[str] = mapped_column(String(30), index=True)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    location: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    assigned_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id"), index=True, nullable=True
+    )
+    reminder_minutes: Mapped[list[int]] = mapped_column(JSON, default=list)
+    legal_authority: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    calculation_summary: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="tentative", index=True)
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    confirmed_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class AuditRecord(Base):
     __tablename__ = "audit_events"
 
