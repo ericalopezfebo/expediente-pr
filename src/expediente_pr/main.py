@@ -1,3 +1,5 @@
+import hmac
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, time, timedelta
 from pathlib import Path
@@ -5,7 +7,17 @@ from typing import Annotated
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile, status
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.orm import Session
 
@@ -20,6 +32,30 @@ from .document_storage import (
     save_quarantined,
 )
 from .ical import build_calendar
+from .integrations import (
+    AuthorizationURL,
+    ConnectionView,
+    DeliveryResult,
+    GmailMessage,
+    IntegrationConfigurationError,
+    IntegrationProvider,
+    ProviderError,
+    WhatsAppConnect,
+    WhatsAppTemplate,
+    create_oauth_state,
+    disconnect,
+    exchange_google_code,
+    exchange_meta_code,
+    google_authorization_url,
+    list_connections,
+    push_google_event,
+    record_whatsapp_webhook,
+    send_gmail,
+    send_whatsapp_template,
+    upsert_connection,
+    verify_meta_signature,
+    verify_oauth_state,
+)
 from .models import (
     AuditEvent,
     CalendarConflict,
@@ -57,7 +93,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="Expediente PR",
-    version="0.4.0",
+    version="0.5.0",
     description="API para la gestión auditable y aislada de expedientes jurídicos.",
     lifespan=lifespan,
 )
@@ -407,3 +443,174 @@ def deadline(payload: DeadlineRequest) -> DeadlineResult:
 @app.get("/deadline-rules", response_model=list[DeadlineRule])
 def deadline_rules() -> list[DeadlineRule]:
     return list_rules()
+
+
+@app.get("/integrations", response_model=list[ConnectionView])
+def integration_list(session: SessionDep, identity: IdentityDep) -> list[ConnectionView]:
+    return list_connections(session, identity.firm_id, identity.user_id)
+
+
+@app.get("/integrations/google/authorize", response_model=AuthorizationURL)
+def authorize_google(identity: IdentityDep) -> AuthorizationURL:
+    try:
+        return AuthorizationURL(
+            url=google_authorization_url(identity.firm_id, identity.user_id)
+        )
+    except IntegrationConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/integrations/google/callback", response_model=ConnectionView)
+def google_callback(code: str, state: str, session: SessionDep) -> ConnectionView:
+    try:
+        firm_id, user_id = verify_oauth_state(state, IntegrationProvider.GOOGLE)
+        token = exchange_google_code(code)
+        return upsert_connection(
+            session,
+            firm_id=firm_id,
+            user_id=user_id,
+            provider=IntegrationProvider.GOOGLE,
+            access_token=str(token["access_token"]),
+            refresh_token=(
+                str(token["refresh_token"]) if token.get("refresh_token") else None
+            ),
+            expires_in=int(token.get("expires_in", 0)) or None,
+            scopes=str(token.get("scope", "")).split(),
+            configuration={"calendar_id": "primary"},
+        )
+    except (IntegrationConfigurationError, ProviderError, ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post(
+    "/integrations/google/calendar/events/{event_id}",
+    response_model=DeliveryResult,
+)
+def sync_google_event(
+    event_id: UUID, session: SessionDep, identity: IdentityDep
+) -> DeliveryResult:
+    authorize(identity, UserRole.ADMIN, UserRole.ATTORNEY, UserRole.STAFF)
+    try:
+        return push_google_event(session, identity.firm_id, identity.user_id, event_id)
+    except (IntegrationConfigurationError, ProviderError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/integrations/google/gmail/send", response_model=DeliveryResult)
+def gmail_send(
+    payload: GmailMessage, session: SessionDep, identity: IdentityDep
+) -> DeliveryResult:
+    authorize(identity, UserRole.ADMIN, UserRole.ATTORNEY, UserRole.STAFF)
+    if payload.case_id and repository.get_case(
+        session, identity.firm_id, payload.case_id
+    ) is None:
+        raise HTTPException(status_code=404, detail="Expediente no encontrado")
+    try:
+        return send_gmail(session, identity.firm_id, identity.user_id, payload)
+    except (IntegrationConfigurationError, ProviderError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/integrations/whatsapp/signup", response_model=AuthorizationURL)
+def whatsapp_signup(identity: IdentityDep) -> AuthorizationURL:
+    try:
+        state = create_oauth_state(
+            identity.firm_id, identity.user_id, IntegrationProvider.WHATSAPP
+        )
+        return AuthorizationURL(
+            url=(
+                "https://www.facebook.com/dialog/oauth?"
+                f"client_id={os.environ['META_APP_ID']}"
+                f"&config_id={os.environ['META_CONFIG_ID']}"
+                "&response_type=code&override_default_response_type=true"
+                f"&state={state}"
+            )
+        )
+    except (IntegrationConfigurationError, KeyError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/integrations/whatsapp/connect", response_model=ConnectionView)
+def whatsapp_connect(
+    payload: WhatsAppConnect,
+    state: str,
+    session: SessionDep,
+    identity: IdentityDep,
+) -> ConnectionView:
+    authorize(identity, UserRole.ADMIN)
+    try:
+        firm_id, user_id = verify_oauth_state(state, IntegrationProvider.WHATSAPP)
+        if firm_id != identity.firm_id or user_id != identity.user_id:
+            raise ValueError("La autorización no pertenece a este usuario")
+        access_token = exchange_meta_code(payload.code)
+        return upsert_connection(
+            session,
+            firm_id=firm_id,
+            user_id=user_id,
+            provider=IntegrationProvider.WHATSAPP,
+            access_token=access_token,
+            configuration={
+                "phone_number_id": payload.phone_number_id,
+                "waba_id": payload.waba_id,
+            },
+        )
+    except (IntegrationConfigurationError, ProviderError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/integrations/whatsapp/messages", response_model=DeliveryResult)
+def whatsapp_send(
+    payload: WhatsAppTemplate, session: SessionDep, identity: IdentityDep
+) -> DeliveryResult:
+    authorize(identity, UserRole.ADMIN, UserRole.ATTORNEY, UserRole.STAFF)
+    if payload.case_id and repository.get_case(
+        session, identity.firm_id, payload.case_id
+    ) is None:
+        raise HTTPException(status_code=404, detail="Expediente no encontrado")
+    try:
+        return send_whatsapp_template(
+            session, identity.firm_id, identity.user_id, payload
+        )
+    except (IntegrationConfigurationError, ProviderError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/webhooks/whatsapp")
+def verify_whatsapp_webhook(
+    hub_mode: Annotated[str | None, Query(alias="hub.mode")] = None,
+    hub_token: Annotated[str | None, Query(alias="hub.verify_token")] = None,
+    hub_challenge: Annotated[str | None, Query(alias="hub.challenge")] = None,
+) -> Response:
+    if (
+        hub_mode != "subscribe"
+        or not hub_token
+        or not hmac.compare_digest(
+            hub_token, os.getenv("META_WEBHOOK_VERIFY_TOKEN", "")
+        )
+    ):
+        raise HTTPException(status_code=403, detail="Verificación inválida")
+    return Response(content=hub_challenge or "", media_type="text/plain")
+
+
+@app.post("/webhooks/whatsapp")
+async def whatsapp_webhook(request: Request, session: SessionDep) -> dict[str, int]:
+    body = await request.body()
+    try:
+        if not verify_meta_signature(
+            body, request.headers.get("X-Hub-Signature-256")
+        ):
+            raise HTTPException(status_code=401, detail="Firma inválida")
+        return {"recorded": record_whatsapp_webhook(session, await request.json())}
+    except IntegrationConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.delete("/integrations/{provider}", status_code=status.HTTP_204_NO_CONTENT)
+def disconnect_integration(
+    provider: IntegrationProvider, session: SessionDep, identity: IdentityDep
+) -> Response:
+    try:
+        disconnect(session, identity.firm_id, identity.user_id, provider)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
