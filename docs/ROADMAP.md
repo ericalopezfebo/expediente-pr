@@ -9,9 +9,12 @@
 
 ## Fase 2 — Persistencia y acceso
 
-- PostgreSQL y migraciones.
-- Organizaciones, usuarios y roles.
-- Registro de auditoría append-only.
+- [x] SQLite para desarrollo y PostgreSQL mediante Docker.
+- [x] Contexto obligatorio de bufete.
+- [x] Registro inicial de auditoría.
+- [ ] Migraciones versionadas.
+- [ ] Usuarios, autenticación multifactor y roles.
+- [ ] Bitácora append-only protegida a nivel de base de datos.
 - Búsqueda y filtros.
 
 ## Fase 3 — Documentos
@@ -32,4 +35,3 @@
 - Panel del bufete y cronología del caso.
 - Calendario, alertas y asignaciones.
 - Detección explicable de expedientes relacionados.
-

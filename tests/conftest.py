@@ -1,9 +1,13 @@
-import pytest
+import os
 
-from expediente_pr.store import store
+os.environ["EXPEDIENTE_DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
+
+import pytest  # noqa: E402
+
+from expediente_pr.database import Base, engine  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def reset_store() -> None:
-    store.clear()
-
+def reset_database() -> None:
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)

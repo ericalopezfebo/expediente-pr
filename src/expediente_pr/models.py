@@ -17,6 +17,15 @@ class Jurisdiction(StrEnum):
     FEDERAL = "federal"
 
 
+class FirmCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=240)
+
+
+class Firm(FirmCreate):
+    id: UUID = Field(default_factory=uuid4)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class CaseCreate(BaseModel):
     case_number: str = Field(min_length=1, max_length=80)
     title: str = Field(min_length=1, max_length=240)
@@ -43,6 +52,17 @@ class Task(TaskCreate):
     id: UUID = Field(default_factory=uuid4)
     case_id: UUID
     completed: bool = False
+
+
+class AuditEvent(BaseModel):
+    id: UUID
+    firm_id: UUID
+    actor: str
+    action: str
+    resource_type: str
+    resource_id: UUID
+    occurred_at: datetime
+    details: dict[str, str] = Field(default_factory=dict)
 
 
 class DeadlineRequest(BaseModel):
