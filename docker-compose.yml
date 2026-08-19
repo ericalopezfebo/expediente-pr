@@ -1,7 +1,28 @@
 services:
+  database:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: expediente_pr
+      POSTGRES_USER: expediente
+      POSTGRES_PASSWORD: local-development-only
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U expediente -d expediente_pr"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   api:
     build: .
+    environment:
+      EXPEDIENTE_DATABASE_URL: postgresql+psycopg://expediente:local-development-only@database:5432/expediente_pr
     ports:
       - "8000:8000"
+    depends_on:
+      database:
+        condition: service_healthy
     restart: unless-stopped
 
+volumes:
+  postgres-data:
