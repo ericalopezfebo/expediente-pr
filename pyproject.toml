@@ -1,11 +1,13 @@
 [project]
 name = "expediente-pr"
-version = "0.4.0"
+version = "0.5.0"
 description = "Gestión open source de expedientes jurídicos para Puerto Rico"
 requires-python = ">=3.11"
 dependencies = [
   "alembic>=1.14,<2",
+  "cryptography>=44,<46",
   "fastapi>=0.115,<1",
+  "httpx>=0.28,<1",
   "pydantic>=2.10,<3",
   "python-multipart>=0.0.20,<1",
   "sqlalchemy>=2.0,<3",
@@ -14,7 +16,6 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "httpx>=0.28,<1",
   "pytest>=8.3,<9",
   "ruff>=0.9,<1",
 ]

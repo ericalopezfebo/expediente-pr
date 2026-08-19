@@ -84,3 +84,31 @@ pytest -q
 ## Licencia
 
 Apache License 2.0. Consulta [LICENSE](LICENSE).
+## Integraciones opcionales
+
+La versión 0.5 incorpora una base autohospedable para que cada profesional conecte
+sus propias cuentas sin compartir contraseñas:
+
+- Google Calendar: crea o actualiza eventos desde el calendario legal.
+- Gmail: envía mensajes y registra metadatos de entrega en el expediente.
+- WhatsApp Business Platform: onboarding mediante código de Meta, envío de
+  plantillas aprobadas y recepción de webhooks firmados.
+- iCalendar: exportación privada compatible con otros calendarios.
+
+Las integraciones permanecen deshabilitadas hasta que el operador configure sus
+propias aplicaciones OAuth. Copie solamente los nombres de variables de
+`.env.example`; nunca publique sus valores reales.
+
+### Controles de seguridad
+
+- Los access y refresh tokens se cifran con Fernet antes de persistirse.
+- El estado OAuth está firmado, ligado a bufete/usuario/proveedor y expira en diez minutos.
+- Los permisos de Google se limitan a eventos de calendario y envío de Gmail.
+- La aplicación no solicita lectura general del buzón.
+- Los webhooks de WhatsApp requieren `X-Hub-Signature-256`.
+- Las credenciales pueden revocarse con `DELETE /integrations/{provider}`.
+- Los mensajes de WhatsApp deben usar plantillas aprobadas y evitar información
+  confidencial en notificaciones.
+
+Consulte [Configuración de integraciones](docs/INTEGRATIONS.md) para registrar las
+aplicaciones de Google y Meta.

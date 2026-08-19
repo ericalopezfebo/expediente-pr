@@ -103,6 +103,72 @@ class CalendarEventRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class IntegrationConnectionRecord(Base):
+    __tablename__ = "integration_connections"
+    __table_args__ = (
+        UniqueConstraint("firm_id", "user_id", "provider", name="uq_integration_owner_provider"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    firm_id: Mapped[str] = mapped_column(ForeignKey("firms.id"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(30), index=True)
+    account_id: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    display_name: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    encrypted_access_token: Mapped[str] = mapped_column(String(4096))
+    encrypted_refresh_token: Mapped[str | None] = mapped_column(String(4096), nullable=True)
+    scopes: Mapped[list[str]] = mapped_column(JSON, default=list)
+    token_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    configuration: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(20), default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ExternalEventLinkRecord(Base):
+    __tablename__ = "external_event_links"
+    __table_args__ = (
+        UniqueConstraint(
+            "connection_id", "calendar_event_id", name="uq_external_link_event"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    firm_id: Mapped[str] = mapped_column(ForeignKey("firms.id"), index=True)
+    connection_id: Mapped[str] = mapped_column(
+        ForeignKey("integration_connections.id"), index=True
+    )
+    calendar_event_id: Mapped[str] = mapped_column(
+        ForeignKey("calendar_events.id"), index=True
+    )
+    external_id: Mapped[str] = mapped_column(String(1024))
+    etag: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class CommunicationRecord(Base):
+    __tablename__ = "communications"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    firm_id: Mapped[str] = mapped_column(ForeignKey("firms.id"), index=True)
+    case_id: Mapped[str | None] = mapped_column(
+        ForeignKey("cases.id"), index=True, nullable=True
+    )
+    connection_id: Mapped[str] = mapped_column(
+        ForeignKey("integration_connections.id"), index=True
+    )
+    channel: Mapped[str] = mapped_column(String(30), index=True)
+    direction: Mapped[str] = mapped_column(String(20))
+    external_id: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    recipient: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    subject: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), index=True)
+    metadata_json: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class AuditRecord(Base):
     __tablename__ = "audit_events"
 
