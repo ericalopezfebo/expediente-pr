@@ -17,7 +17,8 @@ a aprobación humana.
 
 - Crear y consultar expedientes.
 - Persistencia local en SQLite o despliegue con PostgreSQL.
-- Aislamiento obligatorio por bufete mediante `X-Firm-ID`.
+- Autenticación mediante tokens que solo se almacenan como hash.
+- Roles para administración, abogacía, personal y clientes.
 - Vincular números de casos relacionados.
 - Crear y consultar tareas por expediente.
 - Bitácora de creación de expedientes y tareas.
@@ -38,10 +39,13 @@ uvicorn expediente_pr.main:app --reload
 
 Abre `http://127.0.0.1:8000/docs` para probar la API.
 
-Primero crea un bufete ficticio con `POST /firms`. Para las rutas de expedientes,
-envía su identificador en `X-Firm-ID` y un actor de desarrollo en `X-Actor`.
-Estos encabezados establecen aislamiento y trazabilidad, pero **todavía no sustituyen
-un sistema de autenticación**.
+Configura `EXPEDIENTE_BOOTSTRAP_TOKEN` y crea el primer bufete ficticio mediante
+`POST /firms/register`. El token administrativo se muestra una sola vez. Utilízalo
+como `Authorization: Bearer <token>` para crear usuarios y administrar expedientes.
+
+Los tokens de API son una primera capa de autenticación para el backend. Antes de
+uso productivo todavía hacen falta MFA, recuperación segura, rotación y sesiones
+adecuadas para navegador.
 
 También puede iniciarse con Docker:
 
