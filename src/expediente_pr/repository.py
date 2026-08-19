@@ -11,10 +11,12 @@ from .models import (
     Case,
     CaseCreate,
     CaseStatus,
+    Document,
     Firm,
     FirmCreate,
     FirmCredential,
     FirmRegistration,
+    RelatedCaseSuggestion,
     Task,
     TaskCreate,
     User,
@@ -22,7 +24,14 @@ from .models import (
     UserCredential,
     UserRole,
 )
-from .records import AuditRecord, CaseRecord, FirmRecord, TaskRecord, UserRecord
+from .records import (
+    AuditRecord,
+    CaseRecord,
+    DocumentRecord,
+    FirmRecord,
+    TaskRecord,
+    UserRecord,
+)
 
 
 class DuplicateCaseNumberError(ValueError):
@@ -245,3 +254,122 @@ def list_audit_events(session: Session, firm_id: UUID) -> list[AuditEvent]:
         )
         for record in session.scalars(statement)
     ]
+
+
+def _document(record: DocumentRecord) -> Document:
+    return Document(
+        id=UUID(record.id),
+        case_id=UUID(record.case_id),
+        filename=record.filename,
+        media_type=record.media_type,
+        size=record.size,
+        sha256=record.sha256,
+        scan_status=record.scan_status,
+        created_at=record.created_at,
+    )
+
+
+def record_document(
+    session: Session,
+    *,
+    firm_id: UUID,
+    case_id: UUID,
+    actor: str,
+    filename: str,
+    media_type: str,
+    size: int,
+    sha256: str,
+    storage_key: str,
+) -> Document:
+    record = DocumentRecord(
+        firm_id=str(firm_id),
+        case_id=str(case_id),
+        filename=filename,
+        media_type=media_type,
+        size=size,
+        sha256=sha256,
+        storage_key=storage_key,
+        scan_status="quarantined",
+        created_at=datetime.now(UTC),
+    )
+    session.add(record)
+    session.flush()
+    audit(
+        session,
+        firm_id=firm_id,
+        actor=actor,
+        action="document.quarantined",
+        resource_type="document",
+        resource_id=UUID(record.id),
+        details={"case_id": str(case_id), "sha256": sha256},
+    )
+    session.commit()
+    return _document(record)
+
+
+def list_documents(session: Session, firm_id: UUID, case_id: UUID) -> list[Document]:
+    statement = select(DocumentRecord).where(
+        DocumentRecord.firm_id == str(firm_id), DocumentRecord.case_id == str(case_id)
+    )
+    return [_document(record) for record in session.scalars(statement)]
+
+
+def get_document_record(
+    session: Session, firm_id: UUID, document_id: UUID
+) -> DocumentRecord | None:
+    return session.scalar(
+        select(DocumentRecord).where(
+            DocumentRecord.id == str(document_id),
+            DocumentRecord.firm_id == str(firm_id),
+        )
+    )
+
+
+def case_timeline(session: Session, firm_id: UUID, case_id: UUID) -> list[AuditEvent]:
+    events = list_audit_events(session, firm_id)
+    case_value = str(case_id)
+    return [
+        event
+        for event in events
+        if str(event.resource_id) == case_value or event.details.get("case_id") == case_value
+    ]
+
+
+def related_case_suggestions(
+    session: Session, firm_id: UUID, case_id: UUID
+) -> list[RelatedCaseSuggestion]:
+    target = session.scalar(
+        select(CaseRecord).where(
+            CaseRecord.id == str(case_id), CaseRecord.firm_id == str(firm_id)
+        )
+    )
+    if target is None:
+        return []
+    suggestions: list[RelatedCaseSuggestion] = []
+    target_words = set(target.title.casefold().split())
+    for candidate in session.scalars(
+        select(CaseRecord).where(
+            CaseRecord.firm_id == str(firm_id), CaseRecord.id != target.id
+        )
+    ):
+        reasons: list[str] = []
+        score = 0.0
+        if candidate.client_name.casefold() == target.client_name.casefold():
+            score += 0.7
+            reasons.append("Mismo cliente")
+        words = set(candidate.title.casefold().split())
+        overlap = len(target_words & words) / max(len(target_words | words), 1)
+        if overlap >= 0.5:
+            score += 0.3 * overlap
+            reasons.append("Título similar")
+        if score >= 0.5:
+            suggestions.append(
+                RelatedCaseSuggestion(
+                    case_id=UUID(candidate.id),
+                    case_number=candidate.case_number,
+                    title=candidate.title,
+                    score=round(score, 3),
+                    reasons=reasons,
+                )
+            )
+    return sorted(suggestions, key=lambda item: item.score, reverse=True)
