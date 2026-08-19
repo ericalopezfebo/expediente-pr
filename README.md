@@ -112,3 +112,16 @@ propias aplicaciones OAuth. Copie solamente los nombres de variables de
 
 Consulte [Configuración de integraciones](docs/INTEGRATIONS.md) para registrar las
 aplicaciones de Google y Meta.
+
+El dashboard incluye un panel para conectar o revocar proveedores y seleccionar
+el calendario de Google. Los recordatorios se procesan sin exponer el título ni
+el expediente en el correo:
+
+```bash
+expediente-worker --once
+```
+
+En producción, ejecute ese comando periódicamente mediante un scheduler o como
+un servicio separado. Los trabajos se deduplican por evento, antelación y canal;
+los fallos quedan en estado de reintento y nunca convierten la aceptación del
+proveedor en prueba de entrega.
