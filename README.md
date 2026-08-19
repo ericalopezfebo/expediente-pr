@@ -22,6 +22,9 @@ a aprobación humana.
 - Vincular números de casos relacionados.
 - Crear y consultar tareas por expediente.
 - Bitácora de creación de expedientes y tareas.
+- Documentos PDF y DOCX en cuarentena con hash SHA-256.
+- Exportación local opcional a una raíz previamente autorizada en VELUM.
+- Dashboard inicial y sugerencias explicables de casos relacionados.
 - Calcular fechas provisionales con explicación y fuente indicada por el usuario.
 - API documentada automáticamente con OpenAPI.
 - Pruebas y validación continua en GitHub Actions.
@@ -46,6 +49,11 @@ como `Authorization: Bearer <token>` para crear usuarios y administrar expedient
 Los tokens de API son una primera capa de autenticación para el backend. Antes de
 uso productivo todavía hacen falta MFA, recuperación segura, rotación y sesiones
 adecuadas para navegador.
+
+Los documentos cargados permanecen en estado `quarantined`: no pueden descargarse
+desde la API ni enviarse a proveedores externos. La exportación a VELUM solo copia el
+archivo a `EXPEDIENTE_VELUM_ROOT`, que debe ser una carpeta local existente y también
+estar autorizada expresamente en VELUM.
 
 También puede iniciarse con Docker:
 
