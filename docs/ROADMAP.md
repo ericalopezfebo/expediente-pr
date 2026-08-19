@@ -53,6 +53,8 @@
 - [x] Cola persistente y deduplicada con reintentos limitados
 - [x] Panel frontend para iniciar y revocar conexiones
 - [x] Selector validado de Google Calendar
+- [x] Webhook firmado y retorno de cambios para eventos Google vinculados
+- [ ] Renovación programada de canales Google antes de su expiración
 - [ ] Dead-letter queue y alertas operacionales
 - [ ] Finalizar Embedded Signup dentro del frontend con el SDK oficial de Meta
 - [ ] Asociación humana de comunicaciones entrantes

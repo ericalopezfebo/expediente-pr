@@ -1,6 +1,6 @@
 [project]
 name = "expediente-pr"
-version = "0.6.0"
+version = "0.6.1"
 description = "Gestión open source de expedientes jurídicos para Puerto Rico"
 requires-python = ">=3.11"
 dependencies = [

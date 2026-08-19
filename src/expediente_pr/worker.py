@@ -14,6 +14,7 @@ from .integrations import (
     IntegrationConfigurationError,
     ProviderError,
     send_gmail,
+    sync_linked_google_events,
 )
 from .records import (
     CalendarEventRecord,
@@ -144,7 +145,14 @@ def run_once(now: datetime | None = None) -> dict[str, int]:
     with SessionLocal() as session:
         enqueued = enqueue_due_reminders(session, current)
         result = deliver_queued_reminders(session, current)
-        return {"enqueued": enqueued, **result}
+        sync = sync_linked_google_events(session)
+        return {
+            "enqueued": enqueued,
+            **result,
+            "calendar_connections": sync["connections"],
+            "calendar_events": sync["events"],
+            "calendar_sync_failed": sync["failed"],
+        }
 
 
 def main() -> None:

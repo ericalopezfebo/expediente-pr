@@ -52,6 +52,7 @@ from .integrations import (
     google_calendars,
     list_connections,
     push_google_event,
+    receive_google_notification,
     record_whatsapp_webhook,
     select_google_calendar,
     send_gmail,
@@ -59,6 +60,7 @@ from .integrations import (
     upsert_connection,
     verify_meta_signature,
     verify_oauth_state,
+    watch_google_calendar,
 )
 from .models import (
     AuditEvent,
@@ -97,7 +99,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="Expediente PR",
-    version="0.6.0",
+    version="0.6.1",
     description="API para la gestión auditable y aislada de expedientes jurídicos.",
     lifespan=lifespan,
 )
@@ -487,6 +489,33 @@ def choose_google_calendar(
         )
     except (IntegrationConfigurationError, ProviderError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/integrations/google/calendar/watch")
+def subscribe_google_calendar(
+    session: SessionDep, identity: IdentityDep
+) -> dict[str, str]:
+    try:
+        return watch_google_calendar(session, identity.firm_id, identity.user_id)
+    except (IntegrationConfigurationError, ProviderError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/webhooks/google/calendar", status_code=status.HTTP_204_NO_CONTENT)
+def google_calendar_webhook(
+    session: SessionDep,
+    channel_id: Annotated[str | None, Header(alias="X-Goog-Channel-ID")] = None,
+    channel_token: Annotated[str | None, Header(alias="X-Goog-Channel-Token")] = None,
+    resource_id: Annotated[str | None, Header(alias="X-Goog-Resource-ID")] = None,
+) -> Response:
+    try:
+        if not receive_google_notification(
+            session, channel_id, channel_token, resource_id
+        ):
+            raise HTTPException(status_code=401, detail="Canal de Google inválido")
+    except IntegrationConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.get("/integrations/google/callback", response_model=ConnectionView)

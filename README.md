@@ -125,3 +125,7 @@ En producción, ejecute ese comando periódicamente mediante un scheduler o como
 un servicio separado. Los trabajos se deduplican por evento, antelación y canal;
 los fallos quedan en estado de reintento y nunca convierten la aceptación del
 proveedor en prueba de entrega.
+
+La sincronización de retorno de Google se activa desde el panel después de
+configurar un webhook HTTPS. Solo vuelve a consultar eventos previamente creados
+o vinculados por Expediente PR; no importa el calendario personal completo.
