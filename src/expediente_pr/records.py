@@ -19,6 +19,19 @@ class FirmRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class UserRecord(Base):
+    __tablename__ = "users"
+    __table_args__ = (UniqueConstraint("firm_id", "email", name="uq_user_firm_email"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    firm_id: Mapped[str] = mapped_column(ForeignKey("firms.id"), index=True)
+    name: Mapped[str] = mapped_column(String(240))
+    email: Mapped[str] = mapped_column(String(320), index=True)
+    role: Mapped[str] = mapped_column(String(20))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
 class CaseRecord(Base):
     __tablename__ = "cases"
     __table_args__ = (UniqueConstraint("firm_id", "case_number", name="uq_case_firm_number"),)

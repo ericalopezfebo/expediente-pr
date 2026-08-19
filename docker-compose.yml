@@ -17,6 +17,7 @@ services:
     build: .
     environment:
       EXPEDIENTE_DATABASE_URL: postgresql+psycopg://expediente:local-development-only@database:5432/expediente_pr
+      EXPEDIENTE_BOOTSTRAP_TOKEN: local-bootstrap-change-before-use
     ports:
       - "8000:8000"
     depends_on:

@@ -17,6 +17,13 @@ class Jurisdiction(StrEnum):
     FEDERAL = "federal"
 
 
+class UserRole(StrEnum):
+    ADMIN = "admin"
+    ATTORNEY = "attorney"
+    STAFF = "staff"
+    CLIENT = "client"
+
+
 class FirmCreate(BaseModel):
     name: str = Field(min_length=1, max_length=240)
 
@@ -24,6 +31,38 @@ class FirmCreate(BaseModel):
 class Firm(FirmCreate):
     id: UUID = Field(default_factory=uuid4)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class UserCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=240)
+    email: str = Field(min_length=3, max_length=320)
+    role: UserRole
+
+
+class User(BaseModel):
+    id: UUID
+    firm_id: UUID
+    name: str
+    email: str
+    role: UserRole
+    active: bool
+
+
+class UserCredential(BaseModel):
+    user: User
+    api_token: str
+
+
+class FirmRegistration(BaseModel):
+    firm_name: str = Field(min_length=1, max_length=240)
+    admin_name: str = Field(min_length=1, max_length=240)
+    admin_email: str = Field(min_length=3, max_length=320)
+
+
+class FirmCredential(BaseModel):
+    firm: Firm
+    administrator: User
+    api_token: str
 
 
 class CaseCreate(BaseModel):
