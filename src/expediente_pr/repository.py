@@ -5,8 +5,24 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .models import AuditEvent, Case, CaseCreate, CaseStatus, Firm, FirmCreate, Task, TaskCreate
-from .records import AuditRecord, CaseRecord, FirmRecord, TaskRecord
+from .auth import issue_token
+from .models import (
+    AuditEvent,
+    Case,
+    CaseCreate,
+    CaseStatus,
+    Firm,
+    FirmCreate,
+    FirmCredential,
+    FirmRegistration,
+    Task,
+    TaskCreate,
+    User,
+    UserCreate,
+    UserCredential,
+    UserRole,
+)
+from .records import AuditRecord, CaseRecord, FirmRecord, TaskRecord, UserRecord
 
 
 class DuplicateCaseNumberError(ValueError):
@@ -45,6 +61,71 @@ def create_firm(session: Session, payload: FirmCreate) -> Firm:
     session.add(record)
     session.commit()
     return Firm(id=UUID(record.id), name=record.name, created_at=now)
+
+
+def _user(record: UserRecord) -> User:
+    return User(
+        id=UUID(record.id),
+        firm_id=UUID(record.firm_id),
+        name=record.name,
+        email=record.email,
+        role=UserRole(record.role),
+        active=record.active,
+    )
+
+
+def register_firm(session: Session, payload: FirmRegistration) -> FirmCredential:
+    now = datetime.now(UTC)
+    firm = FirmRecord(name=payload.firm_name, created_at=now)
+    session.add(firm)
+    session.flush()
+    token, digest = issue_token()
+    admin = UserRecord(
+        firm_id=firm.id,
+        name=payload.admin_name,
+        email=payload.admin_email.casefold(),
+        role=UserRole.ADMIN.value,
+        token_hash=digest,
+        active=True,
+    )
+    session.add(admin)
+    session.commit()
+    return FirmCredential(
+        firm=Firm(id=UUID(firm.id), name=firm.name, created_at=firm.created_at),
+        administrator=_user(admin),
+        api_token=token,
+    )
+
+
+def create_user(
+    session: Session, firm_id: UUID, actor: str, payload: UserCreate
+) -> UserCredential:
+    token, digest = issue_token()
+    record = UserRecord(
+        firm_id=str(firm_id),
+        name=payload.name,
+        email=payload.email.casefold(),
+        role=payload.role.value,
+        token_hash=digest,
+        active=True,
+    )
+    session.add(record)
+    try:
+        session.flush()
+        audit(
+            session,
+            firm_id=firm_id,
+            actor=actor,
+            action="user.created",
+            resource_type="user",
+            resource_id=UUID(record.id),
+            details={"role": payload.role.value},
+        )
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise ValueError("El correo ya existe en el bufete") from exc
+    return UserCredential(user=_user(record), api_token=token)
 
 
 def firm_exists(session: Session, firm_id: UUID) -> bool:
