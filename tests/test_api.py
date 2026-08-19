@@ -161,3 +161,94 @@ def test_dashboard_does_not_persist_token() -> None:
     assert response.status_code == 200
     assert "localStorage" not in response.text
     assert "Expediente PR" in response.text
+
+
+def test_legal_calendar_conflicts_confirmation_and_private_export() -> None:
+    _, admin_token = register_firm()
+    user_response = client.post(
+        "/users",
+        headers=auth_headers(admin_token),
+        json={"name": "Abogada", "email": "lawyer@example.test", "role": "attorney"},
+    )
+    assigned_user_id = user_response.json()["user"]["id"]
+    first_payload = {
+        "title": "Vista confidencial",
+        "description": "Detalles que no deben exportarse por defecto",
+        "event_type": "hearing",
+        "starts_at": "2026-09-01T09:00:00-04:00",
+        "ends_at": "2026-09-01T10:00:00-04:00",
+        "assigned_user_id": assigned_user_id,
+        "reminder_minutes": [60],
+    }
+    second_payload = {
+        **first_payload,
+        "title": "Reunión superpuesta",
+        "event_type": "meeting",
+        "starts_at": "2026-09-01T09:30:00-04:00",
+        "ends_at": "2026-09-01T10:30:00-04:00",
+    }
+    first = client.post(
+        "/calendar/events", json=first_payload, headers=auth_headers(admin_token)
+    )
+    second = client.post(
+        "/calendar/events", json=second_payload, headers=auth_headers(admin_token)
+    )
+    assert first.status_code == second.status_code == 201
+
+    query = "start=2026-09-01T00:00:00-04:00&end=2026-09-02T00:00:00-04:00"
+    conflicts = client.get(f"/calendar/conflicts?{query}", headers=auth_headers(admin_token))
+    assert len(conflicts.json()) == 1
+
+    confirmed = client.post(
+        f"/calendar/events/{first.json()['id']}/confirm", headers=auth_headers(admin_token)
+    )
+    assert confirmed.json()["status"] == "confirmed"
+    assert confirmed.json()["confirmed_by"] is not None
+
+    private_ics = client.get(
+        f"/calendar/export.ics?{query}", headers=auth_headers(admin_token)
+    )
+    assert "Evento de expediente" in private_ics.text
+    assert "Vista confidencial" not in private_ics.text
+
+
+def test_deadline_event_is_tentative_and_keeps_authority() -> None:
+    _, token = register_firm()
+    case = client.post("/cases", json=case_payload(), headers=auth_headers(token)).json()
+    response = client.post(
+        f"/cases/{case['id']}/deadline-events",
+        headers=auth_headers(token),
+        json={
+            "title": "Término de prueba",
+            "deadline": {
+                "start_date": "2026-08-10",
+                "days": 12,
+                "start_event": "Notificación de prueba",
+            },
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["status"] == "tentative"
+    assert "Regla 68.1" in response.json()["legal_authority"]
+
+
+def test_due_reminders_are_available_to_a_worker() -> None:
+    _, token = register_firm()
+    event = client.post(
+        "/calendar/events",
+        headers=auth_headers(token),
+        json={
+            "title": "Vista",
+            "event_type": "hearing",
+            "starts_at": "2026-09-01T10:00:00-04:00",
+            "ends_at": "2026-09-01T11:00:00-04:00",
+            "reminder_minutes": [60],
+        },
+    )
+    assert event.status_code == 201
+    response = client.get(
+        "/calendar/reminders/due?at=2026-09-01T08:45:00-04:00&window_minutes=30",
+        headers=auth_headers(token),
+    )
+    assert len(response.json()) == 1
+    assert response.json()[0]["reminder_minutes"] == 60
