@@ -20,4 +20,11 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check .
       - run: pytest -q
-
+      - name: Verify database migrations
+        env:
+          EXPEDIENTE_DATABASE_URL: sqlite+pysqlite:///./migration-test.db
+        run: |
+          alembic upgrade head
+          alembic downgrade base
+      - name: Build production container
+        run: docker build -t expediente-pr:test .
