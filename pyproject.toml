@@ -1,0 +1,36 @@
+[project]
+name = "expediente-pr"
+version = "0.1.0"
+description = "Gestión open source de expedientes jurídicos para Puerto Rico"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "pydantic>=2.10,<3",
+  "uvicorn[standard]>=0.34,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28,<1",
+  "pytest>=8.3,<9",
+  "ruff>=0.9,<1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/expediente_pr"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
