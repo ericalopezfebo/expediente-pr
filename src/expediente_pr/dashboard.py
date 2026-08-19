@@ -41,6 +41,7 @@ DASHBOARD_HTML = """<!doctype html>
         <button id="connect-google" type="button">Conectar Google</button>
         <select id="google-calendar" hidden aria-label="Calendario de Google"></select>
         <button id="save-calendar" type="button" hidden>Usar este calendario</button>
+        <button id="watch-calendar" type="button" hidden>Activar sincronización</button>
         <button id="disconnect-google" type="button" hidden>Desconectar</button>
       </div>
     </article>
@@ -94,7 +95,8 @@ async function loadIntegrations() {
   whatsappState.className = whatsapp ? 'connected' : 'muted';
   const selector = document.querySelector('#google-calendar');
   const save = document.querySelector('#save-calendar');
-  selector.hidden = !google; save.hidden = !google;
+  const watch = document.querySelector('#watch-calendar');
+  selector.hidden = !google; save.hidden = !google; watch.hidden = !google;
   if (google) {
     const calendars = await fetch('/integrations/google/calendars', {headers: activeHeaders});
     if (calendars.ok) {
@@ -130,6 +132,14 @@ document.querySelector('#save-calendar').addEventListener('click', async () => {
   statusNode.textContent = response.ok
     ? 'Calendario seleccionado.' : 'No fue posible seleccionar el calendario.';
   if (response.ok) await loadIntegrations();
+});
+document.querySelector('#watch-calendar').addEventListener('click', async () => {
+  const response = await fetch('/integrations/google/calendar/watch', {
+    method: 'POST', headers: activeHeaders
+  });
+  statusNode.textContent = response.ok
+    ? 'Sincronización de Google Calendar activada.'
+    : 'No fue posible activar la sincronización; revise el webhook HTTPS.';
 });
 document.querySelector('#load').addEventListener('click', async () => {
   const token = document.querySelector('#token').value;
