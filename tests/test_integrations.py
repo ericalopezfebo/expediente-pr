@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 import pytest
 from cryptography.fernet import Fernet
 
+from expediente_pr.database import SessionLocal
 from expediente_pr.integrations import (
     IntegrationConfigurationError,
     IntegrationProvider,
@@ -19,7 +20,6 @@ from expediente_pr.integrations import (
     verify_oauth_state,
     watch_google_calendar,
 )
-from expediente_pr.database import SessionLocal
 from expediente_pr.records import FirmRecord, UserRecord
 
 
