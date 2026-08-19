@@ -1,10 +1,12 @@
 from contextlib import asynccontextmanager
+from datetime import datetime, time, timedelta
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile, status
-from fastapi.responses import HTMLResponse
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile, status
+from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.orm import Session
 
 from . import auth, repository
@@ -17,10 +19,16 @@ from .document_storage import (
     export_to_velum,
     save_quarantined,
 )
+from .ical import build_calendar
 from .models import (
     AuditEvent,
+    CalendarConflict,
+    CalendarEvent,
+    CalendarEventCreate,
+    CalendarReminder,
     Case,
     CaseCreate,
+    DeadlineEventCreate,
     DeadlineRequest,
     DeadlineResult,
     DeadlineRule,
@@ -49,7 +57,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="Expediente PR",
-    version="0.3.0",
+    version="0.4.0",
     description="API para la gestión auditable y aislada de expedientes jurídicos.",
     lifespan=lifespan,
 )
@@ -248,6 +256,144 @@ def velum_export(document_id: UUID, session: SessionDep, identity: IdentityDep) 
 def audit_events(session: SessionDep, identity: IdentityDep) -> list[AuditEvent]:
     authorize(identity, UserRole.ADMIN)
     return repository.list_audit_events(session, identity.firm_id)
+
+
+def _calendar_range(start: datetime, end: datetime) -> None:
+    if start.tzinfo is None or end.tzinfo is None:
+        raise HTTPException(status_code=422, detail="El intervalo requiere zona horaria")
+    if end <= start or end - start > timedelta(days=366):
+        raise HTTPException(status_code=422, detail="Intervalo inválido o mayor de un año")
+
+
+@app.post("/calendar/events", response_model=CalendarEvent, status_code=status.HTTP_201_CREATED)
+def create_calendar_event(
+    payload: CalendarEventCreate, session: SessionDep, identity: IdentityDep
+) -> CalendarEvent:
+    authorize(identity, UserRole.ADMIN, UserRole.ATTORNEY, UserRole.STAFF)
+    try:
+        return repository.create_calendar_event(
+            session, identity.firm_id, identity.user_id, identity.email, payload
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/calendar/events", response_model=list[CalendarEvent])
+def calendar_events(
+    session: SessionDep,
+    identity: IdentityDep,
+    start: datetime = Query(),
+    end: datetime = Query(),
+    case_id: UUID | None = None,
+    assigned_user_id: UUID | None = None,
+) -> list[CalendarEvent]:
+    authorize(identity, UserRole.ADMIN, UserRole.ATTORNEY, UserRole.STAFF)
+    _calendar_range(start, end)
+    return repository.list_calendar_events(
+        session,
+        identity.firm_id,
+        start,
+        end,
+        case_id=case_id,
+        assigned_user_id=assigned_user_id,
+    )
+
+
+@app.post("/calendar/events/{event_id}/confirm", response_model=CalendarEvent)
+def confirm_calendar_event(
+    event_id: UUID, session: SessionDep, identity: IdentityDep
+) -> CalendarEvent:
+    authorize(identity, UserRole.ADMIN, UserRole.ATTORNEY)
+    event = repository.confirm_calendar_event(
+        session, identity.firm_id, event_id, identity.user_id, identity.email
+    )
+    if event is None:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+    return event
+
+
+@app.get("/calendar/conflicts", response_model=list[CalendarConflict])
+def calendar_conflict_list(
+    session: SessionDep,
+    identity: IdentityDep,
+    start: datetime = Query(),
+    end: datetime = Query(),
+) -> list[CalendarConflict]:
+    authorize(identity, UserRole.ADMIN, UserRole.ATTORNEY, UserRole.STAFF)
+    _calendar_range(start, end)
+    return repository.calendar_conflicts(session, identity.firm_id, start, end)
+
+
+@app.get("/calendar/reminders/due", response_model=list[CalendarReminder])
+def due_reminders(
+    session: SessionDep,
+    identity: IdentityDep,
+    at: datetime = Query(),
+    window_minutes: int = Query(default=60, ge=1, le=1440),
+) -> list[CalendarReminder]:
+    authorize(identity, UserRole.ADMIN, UserRole.ATTORNEY, UserRole.STAFF)
+    if at.tzinfo is None:
+        raise HTTPException(status_code=422, detail="La fecha requiere zona horaria")
+    return repository.due_calendar_reminders(
+        session, identity.firm_id, at, window_minutes
+    )
+
+
+@app.post(
+    "/cases/{case_id}/deadline-events",
+    response_model=CalendarEvent,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_deadline_event(
+    case_id: UUID,
+    payload: DeadlineEventCreate,
+    session: SessionDep,
+    identity: IdentityDep,
+) -> CalendarEvent:
+    authorize(identity, UserRole.ADMIN, UserRole.ATTORNEY)
+    if repository.get_case(session, identity.firm_id, case_id) is None:
+        raise HTTPException(status_code=404, detail="Expediente no encontrado")
+    try:
+        result = calculate_deadline(payload.deadline)
+    except UnknownDeadlineRuleError as exc:
+        raise HTTPException(status_code=422, detail="Regla de términos desconocida") from exc
+    timezone = ZoneInfo("America/Puerto_Rico")
+    starts_at = datetime.combine(result.due_date, time(17, 0), tzinfo=timezone)
+    event_payload = CalendarEventCreate(
+        case_id=case_id,
+        title=payload.title,
+        description="Término calculado; requiere confirmación profesional.",
+        event_type="deadline",
+        starts_at=starts_at,
+        ends_at=starts_at + timedelta(hours=1),
+        assigned_user_id=payload.assigned_user_id,
+        reminder_minutes=payload.reminder_minutes,
+        legal_authority=result.rule.authority,
+        calculation_summary=" ".join(result.explanation),
+    )
+    return repository.create_calendar_event(
+        session, identity.firm_id, identity.user_id, identity.email, event_payload
+    )
+
+
+@app.get("/calendar/export.ics")
+def export_calendar(
+    session: SessionDep,
+    identity: IdentityDep,
+    start: datetime = Query(),
+    end: datetime = Query(),
+    include_details: bool = False,
+) -> Response:
+    authorize(identity, UserRole.ADMIN, UserRole.ATTORNEY, UserRole.STAFF)
+    _calendar_range(start, end)
+    if include_details:
+        authorize(identity, UserRole.ADMIN, UserRole.ATTORNEY)
+    events = repository.list_calendar_events(session, identity.firm_id, start, end)
+    return Response(
+        build_calendar(events, include_details=include_details),
+        media_type="text/calendar",
+        headers={"Content-Disposition": 'attachment; filename="expediente-pr.ics"'},
+    )
 
 
 @app.post("/deadlines/calculate", response_model=DeadlineResult)
