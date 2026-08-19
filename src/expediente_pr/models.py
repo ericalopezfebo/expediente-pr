@@ -104,18 +104,57 @@ class AuditEvent(BaseModel):
     details: dict[str, str] = Field(default_factory=dict)
 
 
+class Document(BaseModel):
+    id: UUID
+    case_id: UUID
+    filename: str
+    media_type: str
+    size: int
+    sha256: str
+    scan_status: str
+    created_at: datetime
+
+
+class VelumExport(BaseModel):
+    document_id: UUID
+    sha256: str
+    local_path: str
+    warning: str
+
+
+class RelatedCaseSuggestion(BaseModel):
+    case_id: UUID
+    case_number: str
+    title: str
+    score: float
+    reasons: list[str]
+
+
 class DeadlineRequest(BaseModel):
     start_date: date
     days: int = Field(gt=0, le=365)
-    use_calendar_days: bool = True
-    authority: str = Field(min_length=1, max_length=500)
+    rule_id: str = "pr-civil-68.1"
+    closure_dates: list[date] = Field(default_factory=list)
+    mail_extension_applicable: bool = False
+    start_event: str = Field(min_length=1, max_length=500)
+
+
+class DeadlineRule(BaseModel):
+    id: str
+    name: str
+    jurisdiction: str
+    version: str
+    authority: str
+    source_url: str
+    active: bool
 
 
 class DeadlineResult(BaseModel):
+    rule: DeadlineRule
     start_date: date
     nominal_date: date
     due_date: date
     adjusted: bool
     explanation: list[str]
-    authority: str
+    warnings: list[str] = Field(default_factory=list)
     requires_attorney_review: bool = True

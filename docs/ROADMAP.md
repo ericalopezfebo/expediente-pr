@@ -20,19 +20,23 @@
 
 ## Fase 3 — Documentos
 
-- Carga segura, OCR, etiquetas y versiones.
+- [x] Carga validada de PDF/DOCX en cuarentena y hash SHA-256.
+- [x] Exportación local opcional a una raíz autorizada de VELUM.
+- [ ] Antivirus, OCR, etiquetas y versiones.
 - Plantillas DOCX y generación controlada.
 - Integración local opcional con VELUM.
 
 ## Fase 4 — Términos de Puerto Rico
 
-- Reglas versionadas de procedimiento civil y administrativo.
-- Feriados de Puerto Rico y calendarios judiciales.
+- [x] Regla 68.1 versionada con fuente oficial y explicación.
+- [x] Cierres suministrados por el usuario y tratados como datos verificables.
+- [ ] Reglas sustantivas específicas de procedimiento civil y administrativo.
+- [ ] Ingestión autenticada de órdenes de cierre y calendarios judiciales.
 - Autoridades citadas y pruebas de casos límite.
 - Confirmación obligatoria por abogado.
 
 ## Fase 5 — Interfaz y colaboración
 
-- Panel del bufete y cronología del caso.
+- [x] Dashboard inicial y cronología del caso.
 - Calendario, alertas y asignaciones.
-- Detección explicable de expedientes relacionados.
+- [x] Detección explicable de expedientes relacionados.

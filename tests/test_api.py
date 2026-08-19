@@ -104,3 +104,60 @@ def test_roles_restrict_sensitive_operations() -> None:
 def test_invalid_token_is_rejected() -> None:
     response = client.get("/cases", headers=auth_headers("not-a-token"))
     assert response.status_code == 401
+
+
+def test_timeline_and_related_case_suggestions() -> None:
+    _, token = register_firm()
+    first = client.post("/cases", json=case_payload("CASE-1"), headers=auth_headers(token))
+    second_payload = case_payload("CASE-2")
+    second_payload["title"] = "Cliente contra Agencia"
+    second = client.post("/cases", json=second_payload, headers=auth_headers(token))
+    assert second.status_code == 201
+
+    first_id = first.json()["id"]
+    client.post(
+        f"/cases/{first_id}/tasks",
+        json={"title": "Comparar expedientes"},
+        headers=auth_headers(token),
+    )
+    timeline = client.get(f"/cases/{first_id}/timeline", headers=auth_headers(token))
+    suggestions = client.get(
+        f"/cases/{first_id}/related-suggestions", headers=auth_headers(token)
+    )
+    assert {item["action"] for item in timeline.json()} == {
+        "case.created",
+        "task.created",
+    }
+    assert suggestions.json()[0]["case_number"] == "CASE-2"
+    assert "Mismo cliente" in suggestions.json()[0]["reasons"]
+
+
+def test_document_is_validated_and_quarantined() -> None:
+    _, token = register_firm()
+    case = client.post("/cases", json=case_payload(), headers=auth_headers(token)).json()
+    response = client.post(
+        f"/cases/{case['id']}/documents",
+        headers=auth_headers(token),
+        files={"file": ("mocion.pdf", b"%PDF-1.7\nsynthetic", "application/pdf")},
+    )
+    assert response.status_code == 201
+    assert response.json()["scan_status"] == "quarantined"
+    assert len(response.json()["sha256"]) == 64
+
+
+def test_disguised_document_is_rejected() -> None:
+    _, token = register_firm()
+    case = client.post("/cases", json=case_payload(), headers=auth_headers(token)).json()
+    response = client.post(
+        f"/cases/{case['id']}/documents",
+        headers=auth_headers(token),
+        files={"file": ("fake.pdf", b"not a pdf", "application/pdf")},
+    )
+    assert response.status_code == 422
+
+
+def test_dashboard_does_not_persist_token() -> None:
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "localStorage" not in response.text
+    assert "Expediente PR" in response.text

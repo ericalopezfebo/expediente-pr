@@ -63,6 +63,21 @@ class TaskRecord(Base):
     completed: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+class DocumentRecord(Base):
+    __tablename__ = "documents"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    firm_id: Mapped[str] = mapped_column(ForeignKey("firms.id"), index=True)
+    case_id: Mapped[str] = mapped_column(ForeignKey("cases.id"), index=True)
+    filename: Mapped[str] = mapped_column(String(240))
+    media_type: Mapped[str] = mapped_column(String(100))
+    size: Mapped[int]
+    sha256: Mapped[str] = mapped_column(String(64), index=True)
+    storage_key: Mapped[str] = mapped_column(String(100), unique=True)
+    scan_status: Mapped[str] = mapped_column(String(20), default="quarantined")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class AuditRecord(Base):
     __tablename__ = "audit_events"
 
