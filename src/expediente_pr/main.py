@@ -282,8 +282,8 @@ def create_calendar_event(
 def calendar_events(
     session: SessionDep,
     identity: IdentityDep,
-    start: datetime = Query(),
-    end: datetime = Query(),
+    start: Annotated[datetime, Query()],
+    end: Annotated[datetime, Query()],
     case_id: UUID | None = None,
     assigned_user_id: UUID | None = None,
 ) -> list[CalendarEvent]:
@@ -316,8 +316,8 @@ def confirm_calendar_event(
 def calendar_conflict_list(
     session: SessionDep,
     identity: IdentityDep,
-    start: datetime = Query(),
-    end: datetime = Query(),
+    start: Annotated[datetime, Query()],
+    end: Annotated[datetime, Query()],
 ) -> list[CalendarConflict]:
     authorize(identity, UserRole.ADMIN, UserRole.ATTORNEY, UserRole.STAFF)
     _calendar_range(start, end)
@@ -328,8 +328,8 @@ def calendar_conflict_list(
 def due_reminders(
     session: SessionDep,
     identity: IdentityDep,
-    at: datetime = Query(),
-    window_minutes: int = Query(default=60, ge=1, le=1440),
+    at: Annotated[datetime, Query()],
+    window_minutes: Annotated[int, Query(ge=1, le=1440)] = 60,
 ) -> list[CalendarReminder]:
     authorize(identity, UserRole.ADMIN, UserRole.ATTORNEY, UserRole.STAFF)
     if at.tzinfo is None:
@@ -380,8 +380,8 @@ def create_deadline_event(
 def export_calendar(
     session: SessionDep,
     identity: IdentityDep,
-    start: datetime = Query(),
-    end: datetime = Query(),
+    start: Annotated[datetime, Query()],
+    end: Annotated[datetime, Query()],
     include_details: bool = False,
 ) -> Response:
     authorize(identity, UserRole.ADMIN, UserRole.ATTORNEY, UserRole.STAFF)
