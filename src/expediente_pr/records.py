@@ -169,6 +169,35 @@ class CommunicationRecord(Base):
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class ReminderDeliveryRecord(Base):
+    __tablename__ = "reminder_deliveries"
+    __table_args__ = (
+        UniqueConstraint(
+            "calendar_event_id",
+            "reminder_minutes",
+            "channel",
+            name="uq_reminder_delivery_event_offset_channel",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    firm_id: Mapped[str] = mapped_column(ForeignKey("firms.id"), index=True)
+    calendar_event_id: Mapped[str] = mapped_column(
+        ForeignKey("calendar_events.id"), index=True
+    )
+    reminder_minutes: Mapped[int]
+    channel: Mapped[str] = mapped_column(String(30))
+    status: Mapped[str] = mapped_column(String(30), index=True)
+    attempts: Mapped[int] = mapped_column(default=0)
+    scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_error: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class AuditRecord(Base):
     __tablename__ = "audit_events"
 
