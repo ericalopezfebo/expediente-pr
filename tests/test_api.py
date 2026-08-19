@@ -161,6 +161,8 @@ def test_dashboard_does_not_persist_token() -> None:
     assert response.status_code == 200
     assert "localStorage" not in response.text
     assert "Expediente PR" in response.text
+    assert "Conectar Google" in response.text
+    assert "WhatsApp Business" in response.text
 
 
 def test_legal_calendar_conflicts_confirmation_and_private_export() -> None:
