@@ -138,7 +138,7 @@ def test_document_is_validated_and_quarantined() -> None:
     response = client.post(
         f"/cases/{case['id']}/documents",
         headers=auth_headers(token),
-        files={"file": ("mocion.pdf", b"%PDF-1.7\nsynthetic", "application/pdf")},
+        files={"file": ("mocion.pdf", b"%PDF-1.7\nsynthetic\n%%EOF", "application/pdf")},
     )
     assert response.status_code == 201
     assert response.json()["scan_status"] == "quarantined"
